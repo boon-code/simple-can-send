@@ -20,6 +20,9 @@ pub struct Cli {
     /// CAN ID that triggers the configured message
     #[arg(short = 't', long, default_value = "101")]
     pub trigger: String,
+
+    /// CAN interface to use
+    pub iface: String
 }
 
 
@@ -30,6 +33,7 @@ pub struct AppSettings {
     pub len: u8,
     pub trigger_can_id: u32,
     pub extended: bool,
+    pub iface: String,
 }
 impl AppSettings {
     pub fn parse(cli: &Cli) -> Result<Self> {
@@ -48,7 +52,7 @@ impl AppSettings {
         Self::read_hex_bytes(&cli.data, &mut data, &mut len)?;
 
         Ok(Self {
-            can_id, data, len, trigger_can_id, extended
+            can_id, data, len, trigger_can_id, extended, iface: cli.iface.to_string()
         })
     }
 
