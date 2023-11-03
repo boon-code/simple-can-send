@@ -114,6 +114,8 @@ fn main() -> Result<()> {
     let sock = CanSocket::open(&settings.iface)
         .with_context(|| format!("Failed to open socket on interface {}", settings.iface))?;
 
+    let mut count: u64 = 0;
+
     while RUNNING.load(Ordering::Relaxed) {
         let triggered = sock.read_frame_timeout(Duration::from_secs(1))
             .ok()
@@ -129,7 +131,8 @@ fn main() -> Result<()> {
             _ = sock.write_frame(&frame);
         }
 
-        println!("triggered");
+        count = count.wrapping_add(1);
+        println!("triggered {count}");
     }
 
     Ok(())
