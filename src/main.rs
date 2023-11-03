@@ -1,6 +1,9 @@
+use std::{sync::atomic::{AtomicBool, Ordering}, time::Duration};
+
 use clap::Parser;
-use anyhow::{Result, anyhow};
+use anyhow::{Result, Context, anyhow};
 use simple_can_send::ensure_result::ResultEnsure;
+use socketcan::{CanSocket, Socket, Frame, ExtendedId, StandardId, CanFrame, EmbeddedFrame};
 
 #[derive(Parser, Debug)]
 #[command(version = env!("CARGO_PKG_VERSION"), author = "Manuel Huber")]
@@ -30,7 +33,7 @@ pub struct Cli {
 pub struct AppSettings {
     pub can_id: u32,
     pub data: [u8; 8],
-    pub len: u8,
+    pub len: usize,
     pub trigger_can_id: u32,
     pub extended: bool,
     pub iface: String,
@@ -47,7 +50,7 @@ impl AppSettings {
             .ensure(|&x| x <= max_id, |&x| anyhow!("{x} is too big (max: {max_id}"))?;
 
         let mut data = [0; 8];
-        let mut len = 0;
+        let mut len: usize = 0;
 
         Self::read_hex_bytes(&cli.data, &mut data, &mut len)?;
 
@@ -56,7 +59,7 @@ impl AppSettings {
         })
     }
 
-    fn read_hex_bytes(input: &str, data: &mut [u8], len: &mut u8) -> Result<()> {
+    fn read_hex_bytes(input: &str, data: &mut [u8], len: &mut usize) -> Result<()> {
         let n = input.len();
         if n % 2 != 0 {
             anyhow::bail!("Length of the hex string declaring the data must be aligned to bytes");
@@ -82,13 +85,52 @@ impl AppSettings {
     }
 }
 
+fn create_frame(settings: &AppSettings) -> CanFrame {
+    let data = &settings.data[0..settings.len];
+    if settings.extended {
+        let id = ExtendedId::new(settings.can_id).unwrap();
+        return CanFrame::new(id, &data)
+            .unwrap();
+    } else {
+        let id = StandardId::new(settings.can_id as u16).unwrap();
+        return CanFrame::new(id, &data)
+            .unwrap();
+    }
+}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let settings = AppSettings::parse(&cli)?;
 
+    static RUNNING: AtomicBool = AtomicBool::new(true);
+
+    ctrlc::set_handler(|| {
+        RUNNING.store(false, Ordering::Relaxed);
+    })?;
+
     println!("Cli parameters: {cli:?}");
     println!("Settings: {settings:?}");
+
+    let sock = CanSocket::open(&settings.iface)
+        .with_context(|| format!("Failed to open socket on interface {}", settings.iface))?;
+
+    while RUNNING.load(Ordering::Relaxed) {
+        let triggered = sock.read_frame_timeout(Duration::from_secs(1))
+            .ok()
+            .map(|x| x.raw_id() == settings.trigger_can_id)
+            .unwrap_or(false);
+
+        if !triggered {
+            continue;
+        }
+
+        for _i in 0..100 {
+            let frame = create_frame(&settings);
+            _ = sock.write_frame(&frame);
+        }
+
+        println!("triggered");
+    }
 
     Ok(())
 }
