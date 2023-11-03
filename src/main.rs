@@ -84,7 +84,7 @@ impl AppSettings {
 
 
 fn main() -> Result<()> {
-    let cli = Cli::try_parse()?;
+    let cli = Cli::parse();
     let settings = AppSettings::parse(&cli)?;
 
     println!("Cli parameters: {cli:?}");
